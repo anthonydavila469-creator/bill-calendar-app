@@ -11,9 +11,33 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  PieChart,
+  Pie,
+} from 'recharts'
 
 type PaymentWithBill = Payment & {
   bill: Bill
+}
+
+const categoryColors: Record<string, string> = {
+  Utilities: '#3b82f6',
+  Subscriptions: '#8b5cf6',
+  Insurance: '#22c55e',
+  Housing: '#f97316',
+  Transportation: '#eab308',
+  Healthcare: '#ef4444',
+  'Credit Cards': '#0ea5e9',
+  'Food & Dining': '#ec4899',
+  Entertainment: '#6366f1',
+  Other: '#6b7280',
 }
 
 export default function HistoryPage() {
@@ -77,12 +101,22 @@ export default function HistoryPage() {
       Housing: 'badge-housing',
       Transportation: 'badge-transportation',
       Healthcare: 'badge-healthcare',
+      'Credit Cards': 'badge-credit-cards',
       'Food & Dining': 'badge-food',
       Entertainment: 'badge-entertainment',
       Other: 'badge-other',
     }
     return classes[category] || 'badge-other'
   }
+
+  // Prepare chart data
+  const chartData = Object.entries(categoryTotals)
+    .map(([category, total]) => ({
+      name: category,
+      amount: total,
+      color: categoryColors[category] || categoryColors.Other,
+    }))
+    .sort((a, b) => b.amount - a.amount)
 
   if (loading) {
     return (
@@ -115,7 +149,7 @@ export default function HistoryPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2">
         {/* Total Paid Card */}
         <div className="glass-card rounded-2xl p-6">
           <div className="flex items-center gap-4">
@@ -145,25 +179,111 @@ export default function HistoryPage() {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* By Category Card - spans 2 columns */}
-        <div className="glass-card rounded-2xl p-6 md:col-span-2">
-          <p className="text-xs uppercase tracking-wider text-zinc-500 mb-4">Spending by Category</p>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(categoryTotals).map(([category, total]) => (
-              <span
-                key={category}
-                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${getCategoryClass(category)}`}
-              >
-                {category}: ${total.toFixed(2)}
-              </span>
+      {/* Spending Chart */}
+      {chartData.length > 0 && (
+        <div className="glass-card rounded-2xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-6">Spending by Category</h2>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Bar Chart */}
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  layout="vertical"
+                  margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
+                >
+                  <XAxis
+                    type="number"
+                    tickFormatter={(value) => `$${value}`}
+                    stroke="#71717a"
+                    fontSize={12}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    stroke="#71717a"
+                    fontSize={12}
+                    axisLine={false}
+                    tickLine={false}
+                    width={100}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1a1a24',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                      color: '#f0f0f5',
+                    }}
+                    labelStyle={{ color: '#f0f0f5', fontWeight: 600 }}
+                    itemStyle={{ color: '#14b8a6' }}
+                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'Amount']}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  />
+                  <Bar dataKey="amount" radius={[0, 6, 6, 0]}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Pie Chart */}
+            <div className="h-64 flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    dataKey="amount"
+                  >
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} stroke="transparent" />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1a1a24',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '12px',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                      color: '#f0f0f5',
+                    }}
+                    itemStyle={{ color: '#14b8a6' }}
+                    formatter={(value: number, name: string, props: { payload: { name: string } }) => [
+                      `$${value.toFixed(2)}`,
+                      props.payload.name,
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="flex flex-wrap gap-3 mt-6 pt-6 border-t border-white/5">
+            {chartData.map((item) => (
+              <div key={item.name} className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="text-sm text-zinc-400">{item.name}</span>
+                <span className="text-sm font-medium text-white">${item.amount.toFixed(2)}</span>
+              </div>
             ))}
-            {Object.keys(categoryTotals).length === 0 && (
-              <span className="text-zinc-500">No payments this month</span>
-            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Payment List */}
       <div className="glass-card rounded-2xl overflow-hidden">
