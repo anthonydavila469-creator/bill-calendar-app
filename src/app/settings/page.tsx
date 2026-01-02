@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ConfirmDialog, confirmDialogPresets } from '@/components/ui/confirm-dialog'
 import { PageHeader, spacing, typography } from '@/components/design-system'
 import { Mail, Calendar, Trash2, RefreshCw, Zap, AlertTriangle, Bell, Link2, Database, Crown, Sparkles } from 'lucide-react'
@@ -87,6 +88,15 @@ function SettingsContent() {
       const res = await fetch('/api/preferences')
       if (res.ok) {
         const data = await res.json()
+
+        // Ensure reminder_days always has exactly one value (default to 3 days)
+        if (!data.reminder_days || data.reminder_days.length === 0) {
+          data.reminder_days = [3]
+        } else if (data.reminder_days.length > 1) {
+          // If multiple values exist (legacy data), keep only the first one
+          data.reminder_days = [data.reminder_days[0]]
+        }
+
         setPrefs(data)
         setOriginalPrefs(data)
       }
@@ -284,12 +294,10 @@ function SettingsContent() {
     }
   }
 
-  function toggleReminderDay(day: number) {
+  function setReminderDay(day: number) {
     if (!prefs) return
-    const days = prefs.reminder_days.includes(day)
-      ? prefs.reminder_days.filter((d) => d !== day)
-      : [...prefs.reminder_days, day].sort((a, b) => a - b)
-    setPrefs({ ...prefs, reminder_days: days })
+    // Single-select: always set to one value in array for backend compatibility
+    setPrefs({ ...prefs, reminder_days: [day] })
   }
 
   if (loading) {
@@ -385,23 +393,30 @@ function SettingsContent() {
               {/* Reminder Timing */}
               <div className="space-y-3">
                 <Label className={`${typography.bodySmall} text-zinc-400 font-medium`}>Remind me</Label>
-                <div className="flex flex-wrap gap-2">
+                <RadioGroup
+                  value={prefs?.reminder_days[0]?.toString() || '3'}
+                  onValueChange={(value) => setReminderDay(Number(value))}
+                  disabled={!prefs?.reminder_enabled}
+                  className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+                >
                   {REMINDER_OPTIONS.map((option) => (
-                    <button
+                    <label
                       key={option.value}
-                      onClick={() => toggleReminderDay(option.value)}
-                      disabled={!prefs?.reminder_enabled}
-                      className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                        prefs?.reminder_days.includes(option.value)
-                          ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+                      className={`relative flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+                        prefs?.reminder_days[0] === option.value
+                          ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30 ring-1 ring-teal-500/20'
                           : 'bg-white/5 text-zinc-400 border border-white/10 hover:bg-white/10 hover:border-white/20'
-                      }`}
-                      aria-pressed={prefs?.reminder_days.includes(option.value)}
+                      } ${!prefs?.reminder_enabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
-                      {option.label}
-                    </button>
+                      <RadioGroupItem
+                        value={option.value.toString()}
+                        className="sr-only"
+                        disabled={!prefs?.reminder_enabled}
+                      />
+                      <span>{option.label}</span>
+                    </label>
                   ))}
-                </div>
+                </RadioGroup>
               </div>
 
               {/* Email Address */}
@@ -755,7 +770,7 @@ function SectionHeader({
   )
 }
 
-// Toggle Row Component - Makes entire row clickable
+// Toggle Row Component - Makes entire row clickable with full accessibility
 function ToggleRow({
   id,
   label,
@@ -769,21 +784,33 @@ function ToggleRow({
   checked: boolean
   onCheckedChange: (checked: boolean) => void
 }) {
+  const labelId = `${id}-label`
+  const descriptionId = `${id}-description`
+
   return (
-    <label
-      htmlFor={id}
-      className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] hover:border-white/10 transition-all cursor-pointer group"
+    <div
+      className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] hover:border-white/10 transition-all group"
     >
       <div className="flex-1 min-w-0">
-        <p className={`${typography.body} text-white font-medium mb-0.5`}>{label}</p>
-        <p className={`${typography.bodySmall} text-zinc-500`}>{description}</p>
+        <label
+          id={labelId}
+          htmlFor={id}
+          className={`${typography.body} text-white font-medium mb-0.5 block cursor-pointer`}
+        >
+          {label}
+        </label>
+        <p id={descriptionId} className={`${typography.bodySmall} text-zinc-500`}>
+          {description}
+        </p>
       </div>
       <Switch
         id={id}
         checked={checked}
         onCheckedChange={onCheckedChange}
+        aria-labelledby={labelId}
+        aria-describedby={descriptionId}
         className="shrink-0"
       />
-    </label>
+    </div>
   )
 }
