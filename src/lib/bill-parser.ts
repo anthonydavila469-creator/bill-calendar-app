@@ -38,32 +38,108 @@ CRITICAL RULES - READ CAREFULLY:
    - Account alerts, security notices, promotional emails
    - Confirmation emails for payments already made
 
-2. AMOUNT EXTRACTION - Use this PRIORITY ORDER:
+2. COMPANY NAME EXTRACTION - CRITICAL:
+
+   PRIORITY ORDER for finding the company name:
+   a) FIRST: Look in email "From:" field for recognized company
+      - Example: "noreply@chase.com" → Extract "Chase"
+      - Example: "statements@capitalone.com" → Extract "Capital One"
+
+   b) SECOND: Look in email Subject for company name
+      - Example: "Your Amex Statement" → "American Express"
+      - Example: "TXU Energy Bill Ready" → "TXU Energy"
+
+   c) THIRD: Look in email body header/logo area (usually at top)
+      - Example: "GEICO | Auto Insurance" → "GEICO"
+      - Example: Company logo text at top of email
+
+   COMPANY NAME FORMATTING:
+   - Use the FULL company name, not abbreviations
+   - For CREDIT CARDS: Include the specific card type if mentioned
+     * "Chase Freedom" or "Chase Sapphire" or "Chase Ink Business" (NOT just "Chase")
+     * Look for card name in subject or body to distinguish
+   - For UTILITIES: Use official company name from header
+   - Avoid generic names like "Bill", "Statement", "Account", "Company"
+   - Company name should be 3-50 characters
+   - If name contains random numbers/special chars, it's likely wrong
+
+3. AMOUNT EXTRACTION - Use this PRIORITY ORDER:
 
    FOR CREDIT CARDS (Chase, Citi, Capital One, Discover, Amex, etc.):
-   - BEST: "Statement Balance" or "New Balance" (this is the REAL bill amount)
-   - GOOD: "Current Balance" or "Total Balance"
-   - OK: "Total Amount Due" or "Amount Due"
-   - NEVER USE: "Minimum Payment Due" - this is NOT the real bill!
+   - CRITICAL: ALWAYS use Statement Balance, NOT Minimum Payment
+   - SEARCH PRIORITY (use the FIRST one you find):
+     1. "Statement Balance:" or "New Balance:" ← This is the REAL bill amount
+     2. "Current Balance:" or "Total Balance:"
+     3. "Amount Due:" or "Total Amount Due:"
+     4. NEVER EVER USE: "Minimum Payment", "Minimum Due", "Min Payment"
 
-   Example: If email shows "Minimum Payment: $40.00" and "Statement Balance: $2,847.23"
+   - VALIDATION RULE:
+     * If email shows BOTH Statement Balance AND Minimum Payment:
+       → Use the LARGER amount (always Statement Balance)
+     * If you only find Minimum Payment text:
+       → Set confidence to 50 (very low, needs review)
+     * For Citi specifically:
+       → Look for "Citi" or "Citi Custom Cash" in header/logo
+       → Statement Balance shown in table format
+
+   Example 1: If email shows "Minimum Payment: $40.00" and "Statement Balance: $2,847.23"
    → Use amount: 2847.23 (the statement balance), NOT $40
+
+   Example 2: Citi email with "Payment Due Date: Friday, January 23, 2026", "Statement Balance: $3,278.44", "Minimum Payment Due: $95.94"
+   → Use amount: 3278.44 (NOT 95.94), dueDay: 23, confidence: 90
 
    FOR UTILITIES/SERVICES (electric, gas, water, internet, phone):
    - "Amount Due" or "Total Due"
    - "Current Charges" or "New Charges"
    - "Balance Due"
 
-3. DUE DAY - Extract the day of month (1-31):
-   - "Due: January 15, 2025" → dueDay: 15
-   - "Payment due on the 1st" → dueDay: 1
-   - "Due by 03/20/25" → dueDay: 20
-   - "Due Date: 12/15/2024" → dueDay: 15
+   FOR INSURANCE (health, auto, home, life):
+   - CRITICAL: Insurance bills are MONTHLY, not annual
+   - Look for: "Monthly Premium", "Monthly Payment", "Installment Amount"
+   - If email shows "Annual Premium: $X", divide by 12 to get monthly amount
+   - Examples:
+     * "Annual Premium: $3,274" → amount: 272.83 (3274/12)
+     * "$3,000/year" → amount: 250
+   - If only annual amount found, set confidence lower (60-70 range)
+   - VALIDATION: Monthly insurance over $500 is unusual (lower confidence)
 
-4. VALIDATION:
+4. DUE DAY EXTRACTION - CRITICAL:
+
+   SEARCH PATTERNS (in priority order):
+   a) Explicit labels: "Due Date:", "Payment Due:", "Due By:"
+      - "Due Date: January 15, 2025" → dueDay: 15
+      - "Payment Due: 01/15/2025" → dueDay: 15
+
+   b) "Please pay by" or "Pay by" phrases
+      - "Please pay by January 15" → dueDay: 15
+      - "Pay by the 15th" → dueDay: 15
+
+   c) Table/structured format
+      - Look for row with "Due Date" or "Payment Due" header
+
+   d) For credit cards: Statement date + typical payment period
+      - Common pattern: Statement date + 21-25 days
+
+   DATE PARSING FORMATS:
+   - MM/DD/YYYY: "01/15/2025" → day = 15
+   - Month DD, YYYY: "January 15, 2025" → day = 15
+   - Ordinal: "15th of January" → day = 15
+   - "Due on the Xth" → day = X
+
+   VALIDATION:
+   - Due day must be 1-31
+   - If multiple dates found, use the LATEST one (likely the due date)
+   - Don't confuse "Statement Date" with "Due Date"
+   - Don't confuse "AutoPay Date" with "Due Date"
+   - If uncertain about due date, lower confidence by 10 points
+
+5. VALIDATION & CONFIDENCE:
    - If you cannot find a real dollar amount in the email, set isBill: false
    - Amount must be > 0 to be a valid bill
    - Do NOT guess or make up amounts
+   - If amount > $2,000 for non-credit-card, lower confidence to max 70
+   - If company name is generic or unclear, lower confidence by 15 points
+   - If due date found with explicit label, increase confidence by 10 points
 
 EXAMPLES:
 - Email says "Your Chase statement is ready. Log in to view." → isBill: false (no amount)

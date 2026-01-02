@@ -111,35 +111,78 @@ export async function POST() {
     for (const email of newEmails) {
       const parsed = parsedBills.get(email.id)
 
+      // Log what AI extracted for debugging
+      console.log(`Parsed email "${email.subject}" from ${email.from}:`, {
+        isBill: parsed?.isBill,
+        name: parsed?.name,
+        amount: parsed?.amount,
+        amountText: parsed?.amountText,
+        dueDay: parsed?.dueDay,
+        dueDateText: parsed?.dueDateText,
+        category: parsed?.category,
+        confidence: parsed?.confidence
+      })
+
       // Only create bill if: is a bill, high confidence, has name, AND has real amount > 0
       const hasValidAmount = parsed && typeof parsed.amount === 'number' && parsed.amount > 0
 
       if (parsed && parsed.isBill && parsed.confidence >= 70 && parsed.name && hasValidAmount) {
-        // Create the bill
-        const { data: bill, error: billError } = await supabase
+        // Check if a bill with same name, amount, and due_day already exists
+        // This prevents duplicates when re-scanning with "Keep Bills" option
+        // Uses normalized matching to catch variations (case, spacing, decimal precision)
+        const normalizedAmount = Number(parsed.amount).toFixed(2)
+        const amountTolerance = 0.50 // Allow 50 cent variance
+
+        const { data: existingBills } = await supabase
           .from('bills')
-          .insert({
-            user_id: user.id,
-            name: parsed.name,
-            amount: parsed.amount, // Already validated as > 0
-            due_day: parsed.dueDay || 1,
-            recurrence: 'monthly', // Default to monthly for detected bills
-            category: parsed.category,
-            is_active: true,
-            notes: (() => {
-              const parts = [`Auto-detected from: "${email.subject}"`]
-              if (parsed.amountText) parts.push(`Amount found: "${parsed.amountText}"`)
-              if (parsed.dueDateText) parts.push(`Due date found: "${parsed.dueDateText}"`)
-              return parts.join(' | ')
-            })(),
-          })
-          .select()
-          .single()
+          .select('*')
+          .eq('user_id', user.id)
+          .ilike('name', parsed.name) // Case-insensitive match
+          .gte('amount', Number(normalizedAmount) - amountTolerance)
+          .lte('amount', Number(normalizedAmount) + amountTolerance)
+          .eq('due_day', parsed.dueDay || 1)
+          .eq('is_active', true)
+          .limit(1)
 
-        if (!billError && bill) {
-          billsCreated++
+        let billId: string | null = null
 
-          // Track synced email
+        if (existingBills && existingBills.length > 0) {
+          // Bill already exists, use existing bill
+          billId = existingBills[0].id
+          console.log(`⚠️  Duplicate prevented: Bill "${parsed.name}" already exists (ID: ${billId})`)
+        } else {
+          // Create new bill
+          const { data: bill, error: billError } = await supabase
+            .from('bills')
+            .insert({
+              user_id: user.id,
+              name: parsed.name,
+              amount: parsed.amount, // Already validated as > 0
+              due_day: parsed.dueDay || 1,
+              recurrence: 'monthly', // Default to monthly for detected bills
+              category: parsed.category,
+              is_active: true,
+              notes: (() => {
+                const parts = [`Auto-detected from: "${email.subject}"`]
+                if (parsed.amountText) parts.push(`Amount found: "${parsed.amountText}"`)
+                if (parsed.dueDateText) parts.push(`Due date found: "${parsed.dueDateText}"`)
+                return parts.join(' | ')
+              })(),
+            })
+            .select()
+            .single()
+
+          if (!billError && bill) {
+            billId = bill.id
+            billsCreated++
+            console.log(`✅ Bill created: "${parsed.name}" - $${parsed.amount} due day ${parsed.dueDay} (confidence: ${parsed.confidence})`)
+          } else if (billError) {
+            console.error(`❌ Failed to create bill for "${parsed.name}":`, billError)
+          }
+        }
+
+        if (billId) {
+          // Track synced email (whether using existing or new bill)
           await supabase
             .from('synced_emails')
             .insert({
@@ -147,10 +190,43 @@ export async function POST() {
               email_id: email.id,
               email_subject: email.subject,
               email_from: email.from,
-              bill_id: bill.id,
+              bill_id: billId,
             })
         }
       } else {
+        // Determine why bill was rejected
+        const rejectionReason = !parsed
+          ? 'Parse failed - no response from AI'
+          : !parsed.isBill
+          ? 'Not recognized as bill (isBill: false)'
+          : parsed.confidence < 70
+          ? `Low confidence (${parsed.confidence}/100 - threshold is 70)`
+          : !parsed.name
+          ? 'No company name found'
+          : !hasValidAmount
+          ? parsed.amount === null
+            ? 'No amount found in email'
+            : parsed.amount <= 0
+            ? `Invalid amount: $${parsed.amount}`
+            : 'Amount validation failed'
+          : 'Unknown reason'
+
+        console.log(`❌ Bill rejected from "${email.subject}": ${rejectionReason}`)
+
+        // Log rejected bill for user review
+        await supabase.from('rejected_bills').insert({
+          user_id: user.id,
+          email_id: email.id,
+          email_subject: email.subject,
+          email_from: email.from,
+          parsed_name: parsed?.name || null,
+          parsed_amount: parsed?.amount || null,
+          parsed_due_day: parsed?.dueDay || null,
+          parsed_category: parsed?.category || 'Other',
+          confidence: parsed?.confidence || 0,
+          rejection_reason: rejectionReason,
+        })
+
         // Track as processed but no bill created
         await supabase
           .from('synced_emails')
