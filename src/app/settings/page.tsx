@@ -847,10 +847,18 @@ function SettingsContent() {
                     try {
                       const res = await fetch('/api/stripe/create-portal', { method: 'POST' })
                       const data = await res.json()
-                      if (data.url) window.location.href = data.url
-                      else toast.error('Failed to open billing portal')
+
+                      if (res.ok && data.url) {
+                        window.location.href = data.url
+                      } else {
+                        // Show specific error message from API
+                        const errorMsg = data.message || data.error || 'Failed to open billing portal'
+                        toast.error(errorMsg)
+                        console.error('Billing portal error:', data)
+                      }
                     } catch (error) {
-                      toast.error('Failed to open billing portal')
+                      console.error('Billing portal error:', error)
+                      toast.error('Failed to open billing portal. Please try again.')
                     }
                   }}
                   variant="outline"

@@ -15,7 +15,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { stripe } from '@/lib/stripe-server'
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     // Authenticate user
     const supabase = await createClient()
@@ -52,20 +52,16 @@ export async function POST() {
       )
     }
 
-    // Validate environment variables
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL
-    if (!appUrl) {
-      console.error('NEXT_PUBLIC_APP_URL is not configured')
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      )
-    }
+    // Get the origin from the request headers (works in both dev and production)
+    const origin = request.headers.get('origin') || request.headers.get('referer')?.split('/').slice(0, 3).join('/') || process.env.NEXT_PUBLIC_APP_URL || 'https://bill-calendar-app.vercel.app'
+
+    const returnUrl = `${origin}/settings`
+    console.log('Creating portal session with return URL:', returnUrl)
 
     // Create billing portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: prefs.stripe_customer_id,
-      return_url: `${appUrl}/settings`,
+      return_url: returnUrl,
     })
 
     return NextResponse.json({ url: session.url })
