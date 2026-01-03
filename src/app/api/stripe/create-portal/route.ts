@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     // Create billing portal session
     const session = await stripe.billingPortal.sessions.create({
-      customer: customerId,
+      customer: customerId!, // Non-null assertion - already verified above
       return_url: returnUrl,
     })
 
