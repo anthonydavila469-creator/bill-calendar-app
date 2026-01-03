@@ -63,8 +63,35 @@ export async function POST(request: Request) {
     const returnUrl = `${origin}/settings`
     console.log('Creating portal session with return URL:', returnUrl)
 
-    // Log customer ID for debugging
+    // Verify API key mode matches customer mode
+    console.log('Stripe API Key Mode:', process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ? 'TEST' : 'LIVE')
     console.log('Creating portal session for customer:', customerId)
+
+    // Test customer retrieval first to verify access
+    try {
+      const customer = await stripe.customers.retrieve(customerId!)
+      console.log('Customer retrieved successfully:', {
+        id: customer.id,
+        email: (customer as any).email,
+        livemode: (customer as any).livemode,
+      })
+    } catch (customerError: any) {
+      console.error('Failed to retrieve customer:', {
+        message: customerError?.message,
+        type: customerError?.type,
+        code: customerError?.code,
+        statusCode: customerError?.statusCode,
+      })
+      return NextResponse.json(
+        {
+          error: 'Customer verification failed',
+          details: customerError?.message || 'Unknown error',
+          errorType: customerError?.type,
+          errorCode: customerError?.code,
+        },
+        { status: 500 }
+      )
+    }
 
     // Create billing portal session
     const session = await stripe.billingPortal.sessions.create({
