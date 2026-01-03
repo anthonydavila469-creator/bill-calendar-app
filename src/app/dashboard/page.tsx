@@ -319,7 +319,7 @@ export default function DashboardPage() {
       />
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         <StatCard
           label="Total Bills"
           value={bills.length}
