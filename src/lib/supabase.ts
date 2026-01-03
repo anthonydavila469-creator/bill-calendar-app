@@ -36,6 +36,13 @@ export type UserPreferences = {
   email: string | null
   created_at: string
   updated_at: string
+  // Subscription fields
+  subscription_tier: 'free' | 'pro'
+  subscription_status: 'active' | 'past_due' | 'canceled' | 'trialing' | null
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
+  subscription_current_period_end: string | null
+  bills_limit: number | null
 }
 
 export type SyncedEmail = {

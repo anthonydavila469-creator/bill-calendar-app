@@ -20,6 +20,9 @@ interface Preferences {
   google_calendar_id: string
   last_gmail_sync: string | null
   email: string | null
+  subscription_tier?: 'free' | 'pro'
+  subscription_status?: string | null
+  subscription_current_period_end?: string | null
 }
 
 const REMINDER_OPTIONS = [
@@ -28,6 +31,80 @@ const REMINDER_OPTIONS = [
   { value: 7, label: '7 days before' },
   { value: 14, label: '14 days before' },
 ]
+
+/**
+ * Format last sync timestamp with relative or absolute time
+ *
+ * Formatting strategy:
+ * - < 1 min: "just now"
+ * - < 1 hour: "X minutes ago"
+ * - < 24 hours: "X hours ago"
+ * - < 7 days: "X days ago"
+ * - >= 7 days: "Jan 2, 2026 • 3:14 PM" (locale-aware)
+ *
+ * Hover tooltip always shows full timestamp: "Thursday, January 2, 2026 at 3:14:25 PM PST"
+ *
+ * @param timestamp - ISO 8601 timestamp string or null/undefined
+ * @returns Object with display text and optional tooltip
+ */
+function formatLastSync(timestamp: string | null | undefined): {
+  display: string
+  tooltip: string | null
+} {
+  if (!timestamp) {
+    return { display: 'never', tooltip: null }
+  }
+
+  try {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMinutes = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    // Create full timestamp for tooltip (locale-aware with timezone)
+    const fullTimestamp = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'full',
+      timeStyle: 'long',
+    }).format(date)
+
+    // Use relative time for recent syncs
+    if (diffMinutes < 1) {
+      return { display: 'just now', tooltip: fullTimestamp }
+    } else if (diffMinutes < 60) {
+      const label = diffMinutes === 1 ? 'minute' : 'minutes'
+      return { display: `${diffMinutes} ${label} ago`, tooltip: fullTimestamp }
+    } else if (diffHours < 24) {
+      const label = diffHours === 1 ? 'hour' : 'hours'
+      return { display: `${diffHours} ${label} ago`, tooltip: fullTimestamp }
+    } else if (diffDays < 7) {
+      const label = diffDays === 1 ? 'day' : 'days'
+      return { display: `${diffDays} ${label} ago`, tooltip: fullTimestamp }
+    }
+
+    // Use absolute time for older syncs (7+ days)
+    const formattedDate = new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(date)
+
+    const formattedTime = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date)
+
+    return {
+      display: `${formattedDate} • ${formattedTime}`,
+      tooltip: fullTimestamp,
+    }
+  } catch (error) {
+    // Handle invalid date strings gracefully
+    return { display: 'never', tooltip: null }
+  }
+}
 
 export default function SettingsPage() {
   return (
@@ -59,6 +136,7 @@ function SettingsContent() {
   const [resyncing, setResyncing] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [cleaningDuplicates, setCleaningDuplicates] = useState(false)
+  const [sendingTestReminder, setSendingTestReminder] = useState(false)
 
   // Confirmation dialogs state
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false)
@@ -122,10 +200,16 @@ function SettingsContent() {
         toast.success('Preferences saved!')
         setOriginalPrefs(prefs) // Update original to match current
       } else {
-        toast.error('Failed to save preferences')
+        const data = await res.json().catch(() => ({}))
+        const sanitizedError = (data.error || 'Unknown error').replace(/[<>]/g, '')
+        toast.error('Failed to save preferences', {
+          description: `${sanitizedError}. Please try again.`,
+        })
       }
     } catch (err) {
-      toast.error('Failed to save preferences')
+      toast.error('Failed to save preferences', {
+        description: 'Network error. Please check your connection and try again.',
+      })
     } finally {
       setSaving(false)
     }
@@ -142,15 +226,24 @@ function SettingsContent() {
     setDisconnecting(true)
     try {
       const res = await fetch('/api/preferences', { method: 'DELETE' })
+      const data = res.ok ? null : await res.json().catch(() => ({}))
+
       if (res.ok) {
         const newPrefs = { ...prefs!, google_connected: false, gmail_sync_enabled: false }
         setPrefs(newPrefs)
         setOriginalPrefs(newPrefs)
         toast.success('Google account disconnected')
         setShowDisconnectDialog(false)
+      } else {
+        const sanitizedError = (data?.error || 'Unknown error').replace(/[<>]/g, '')
+        toast.error('Failed to disconnect', {
+          description: `${sanitizedError}. Please try again.`,
+        })
       }
     } catch (err) {
-      toast.error('Failed to disconnect')
+      toast.error('Failed to disconnect', {
+        description: 'Network error. Please check your connection and try again.',
+      })
     } finally {
       setDisconnecting(false)
     }
@@ -167,14 +260,22 @@ function SettingsContent() {
         toast.success(`Gmail synced successfully`, {
           description: `Scanned ${data.emailsScanned} emails, created ${data.billsCreated} bills`,
         })
-        fetchPreferences() // Refresh last sync time
+
+        // Update "Last synced" UI immediately
+        const now = new Date().toISOString()
+        const updatedPrefs = { ...prefs!, last_gmail_sync: now }
+        setPrefs(updatedPrefs)
+        setOriginalPrefs(updatedPrefs)
       } else {
+        const sanitizedError = (data.error || 'Unknown error').replace(/[<>]/g, '')
         toast.error('Gmail sync failed', {
-          description: data.error || 'Please try again',
+          description: `${sanitizedError}. Please try again.`,
         })
       }
     } catch (err) {
-      toast.error('Failed to sync Gmail')
+      toast.error('Failed to sync Gmail', {
+        description: 'Network error. Please check your connection and try again.',
+      })
     } finally {
       setSyncing(false)
     }
@@ -192,12 +293,15 @@ function SettingsContent() {
           description: `Synced ${data.synced} of ${data.total} bills to Google Calendar`,
         })
       } else {
+        const sanitizedError = (data.error || 'Unknown error').replace(/[<>]/g, '')
         toast.error('Calendar sync failed', {
-          description: data.error || 'Please try again',
+          description: `${sanitizedError}. Please try again.`,
         })
       }
     } catch (err) {
-      toast.error('Failed to sync calendar')
+      toast.error('Failed to sync calendar', {
+        description: 'Network error. Please check your connection and try again.',
+      })
     } finally {
       setSyncingCalendar(false)
     }
@@ -216,8 +320,9 @@ function SettingsContent() {
       const clearData = await clearRes.json()
 
       if (!clearRes.ok) {
+        const sanitizedError = (clearData.error || 'Unknown error').replace(/[<>]/g, '')
         toast.error('Failed to prepare re-sync', {
-          description: clearData.error,
+          description: `${sanitizedError}. Please try again.`,
         })
         return
       }
@@ -232,15 +337,23 @@ function SettingsContent() {
             ? `Deleted ${clearData.billsDeleted} old bills. Scanned ${syncData.emailsScanned} emails, created ${syncData.billsCreated} new bills.`
             : `Scanned ${syncData.emailsScanned} emails, created ${syncData.billsCreated} new bills.`,
         })
-        fetchPreferences()
+
+        // Update "Last synced" UI immediately
+        const now = new Date().toISOString()
+        const updatedPrefs = { ...prefs!, last_gmail_sync: now }
+        setPrefs(updatedPrefs)
+        setOriginalPrefs(updatedPrefs)
         setResyncDialogMode(null)
       } else {
+        const sanitizedError = (syncData.error || 'Unknown error').replace(/[<>]/g, '')
         toast.error('Re-sync failed', {
-          description: syncData.error,
+          description: `${sanitizedError}. Please try again.`,
         })
       }
     } catch (err) {
-      toast.error('Failed to re-sync Gmail')
+      toast.error('Failed to re-sync Gmail', {
+        description: 'Network error. Please check your connection and try again.',
+      })
     } finally {
       setResyncing(false)
     }
@@ -264,18 +377,23 @@ function SettingsContent() {
           })
         }
       } else {
+        const sanitizedError = (data.error || 'Unknown error').replace(/[<>]/g, '')
         toast.error('Failed to cleanup duplicates', {
-          description: data.error,
+          description: `${sanitizedError}. Please try again.`,
         })
       }
     } catch (err) {
-      toast.error('Failed to cleanup duplicates')
+      toast.error('Failed to cleanup duplicates', {
+        description: 'Network error. Please check your connection and try again.',
+      })
     } finally {
       setCleaningDuplicates(false)
     }
   }
 
   async function sendTestReminder() {
+    setSendingTestReminder(true)
+
     try {
       const res = await fetch('/api/send-reminders')
       const data = await res.json()
@@ -285,12 +403,17 @@ function SettingsContent() {
           description: `Included ${data.billsIncluded} bills`,
         })
       } else {
+        const sanitizedError = (data.error || data.message || 'Unknown error').replace(/[<>]/g, '')
         toast.error('Failed to send test reminder', {
-          description: data.error || data.message,
+          description: `${sanitizedError}. Please try again.`,
         })
       }
     } catch (err) {
-      toast.error('Failed to send test reminder')
+      toast.error('Failed to send test reminder', {
+        description: 'Network error. Please check your connection and try again.',
+      })
+    } finally {
+      setSendingTestReminder(false)
     }
   }
 
@@ -440,13 +563,22 @@ function SettingsContent() {
               {/* Test Button */}
               <Button
                 onClick={sendTestReminder}
-                disabled={!prefs?.reminder_enabled}
+                disabled={!prefs?.reminder_enabled || sendingTestReminder}
                 variant="outline"
                 size="sm"
                 className="border-white/10 text-zinc-300 hover:text-white hover:bg-white/5"
               >
-                <Zap className="w-4 h-4 mr-2" />
-                Send Test Reminder
+                {sendingTestReminder ? (
+                  <>
+                    <div className="w-4 h-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 mr-2" />
+                    Send Test Reminder
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -474,15 +606,23 @@ function SettingsContent() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className={`${typography.body} text-white font-medium`}>Google Account</p>
-                  <p className={`${typography.bodySmall} truncate`}>
-                    {prefs?.google_connected
-                      ? `Connected · Last synced ${
-                          prefs.last_gmail_sync
-                            ? new Date(prefs.last_gmail_sync).toLocaleDateString()
-                            : 'never'
-                        }`
-                      : 'Connect to sync Gmail and Calendar'}
-                  </p>
+                  {prefs?.google_connected ? (
+                    <p className={`${typography.bodySmall} flex items-center gap-1.5 truncate`}>
+                      <span className="text-zinc-500">Connected</span>
+                      <span className="text-zinc-600">•</span>
+                      <span className="text-zinc-500">Last synced:</span>
+                      <span
+                        title={formatLastSync(prefs.last_gmail_sync).tooltip || undefined}
+                        className="text-zinc-400 cursor-help hover:text-zinc-300 transition-colors"
+                      >
+                        {formatLastSync(prefs.last_gmail_sync).display}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className={`${typography.bodySmall} text-zinc-500`}>
+                      Connect to sync Gmail and Calendar
+                    </p>
+                  )}
                 </div>
               </div>
               {prefs?.google_connected ? (
@@ -656,7 +796,7 @@ function SettingsContent() {
           </section>
         )}
 
-        {/* PLAN SECTION (Placeholder) */}
+        {/* PLAN SECTION */}
         <section className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader
             icon={<Crown className="w-5 h-5" />}
@@ -665,15 +805,82 @@ function SettingsContent() {
           />
 
           <div className="p-6">
-            <div className="text-center py-8">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
-                <Crown className="w-8 h-8 text-amber-400" />
+            {prefs?.subscription_tier === 'pro' ? (
+              // Pro User
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-br from-teal-500/10 to-cyan-500/10 border border-teal-500/20">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/50">
+                      <Crown className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <p className={`${typography.body} text-white font-semibold`}>Pro Plan</p>
+                      <p className={`${typography.bodySmall} text-zinc-400`}>
+                        Status: <span className="capitalize">{prefs.subscription_status || 'Active'}</span>
+                      </p>
+                      {prefs.subscription_current_period_end && (
+                        <p className={`${typography.bodySmall} text-zinc-500`}>
+                          Renews {new Date(prefs.subscription_current_period_end).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                    <Sparkles className="w-4 h-4" />
+                    <span className={`${typography.bodySmall} font-medium`}>Active</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className={`${typography.body} text-white font-medium`}>Pro Features</h4>
+                  <ul className={`${typography.bodySmall} text-zinc-400 space-y-1 ml-4`}>
+                    <li>✓ Unlimited bills</li>
+                    <li>✓ Unlimited Gmail sync</li>
+                    <li>✓ AI-powered categorization</li>
+                    <li>✓ Advanced reminders</li>
+                    <li>✓ Spending analytics</li>
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/stripe/create-portal', { method: 'POST' })
+                      const data = await res.json()
+                      if (data.url) window.location.href = data.url
+                      else toast.error('Failed to open billing portal')
+                    } catch (error) {
+                      toast.error('Failed to open billing portal')
+                    }
+                  }}
+                  variant="outline"
+                  className="w-full border-white/10 text-zinc-300 hover:text-white hover:bg-white/5"
+                >
+                  Manage Subscription
+                </Button>
               </div>
-              <p className={`${typography.body} text-zinc-400 mb-2`}>Free Plan</p>
-              <p className={`${typography.bodySmall} text-zinc-500`}>
-                You're currently on the free plan with unlimited bills
-              </p>
-            </div>
+            ) : (
+              // Free User
+              <div className="text-center py-8">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-zinc-500/20 to-zinc-600/20 border border-zinc-500/30 flex items-center justify-center">
+                  <Zap className="w-8 h-8 text-zinc-400" />
+                </div>
+                <p className={`${typography.body} text-white font-medium mb-2`}>Free Plan</p>
+                <p className={`${typography.bodySmall} text-zinc-500 mb-1`}>
+                  Up to 10 active bills
+                </p>
+                <p className={`${typography.bodySmall} text-zinc-600 mb-6`}>
+                  Upgrade to Pro for unlimited bills and premium features
+                </p>
+                <Button
+                  onClick={() => (window.location.href = '/pricing')}
+                  className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-black font-semibold shadow-lg shadow-teal-500/50"
+                >
+                  <Crown className="w-4 h-4 mr-2" />
+                  Upgrade to Pro
+                </Button>
+              </div>
+            )}
           </div>
         </section>
       </div>

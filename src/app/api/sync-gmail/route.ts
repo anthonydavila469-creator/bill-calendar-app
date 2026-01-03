@@ -151,33 +151,46 @@ export async function POST() {
           billId = existingBills[0].id
           console.log(`⚠️  Duplicate prevented: Bill "${parsed.name}" already exists (ID: ${billId})`)
         } else {
-          // Create new bill
-          const { data: bill, error: billError } = await supabase
-            .from('bills')
-            .insert({
-              user_id: user.id,
-              name: parsed.name,
-              amount: parsed.amount, // Already validated as > 0
-              due_day: parsed.dueDay || 1,
-              recurrence: 'monthly', // Default to monthly for detected bills
-              category: parsed.category,
-              is_active: true,
-              notes: (() => {
-                const parts = [`Auto-detected from: "${email.subject}"`]
-                if (parsed.amountText) parts.push(`Amount found: "${parsed.amountText}"`)
-                if (parsed.dueDateText) parts.push(`Due date found: "${parsed.dueDateText}"`)
-                return parts.join(' | ')
-              })(),
+          // Create new bill via centralized API (with limit enforcement)
+          try {
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+            const createRes = await fetch(`${appUrl}/api/bills/create`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                // Pass auth token from current session
+                'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+              },
+              body: JSON.stringify({
+                name: parsed.name,
+                amount: parsed.amount,
+                due_day: parsed.dueDay || 1,
+                recurrence: 'monthly',
+                category: parsed.category,
+                notes: (() => {
+                  const parts = [`Auto-detected from: "${email.subject}"`]
+                  if (parsed.amountText) parts.push(`Amount found: "${parsed.amountText}"`)
+                  if (parsed.dueDateText) parts.push(`Due date found: "${parsed.dueDateText}"`)
+                  return parts.join(' | ')
+                })(),
+              }),
             })
-            .select()
-            .single()
 
-          if (!billError && bill) {
-            billId = bill.id
-            billsCreated++
-            console.log(`✅ Bill created: "${parsed.name}" - $${parsed.amount} due day ${parsed.dueDay} (confidence: ${parsed.confidence})`)
-          } else if (billError) {
-            console.error(`❌ Failed to create bill for "${parsed.name}":`, billError)
+            const createData = await createRes.json()
+
+            if (createRes.ok && createData.bill) {
+              billId = createData.bill.id
+              billsCreated++
+              console.log(`✅ Bill created: "${parsed.name}" - $${parsed.amount} due day ${parsed.dueDay} (confidence: ${parsed.confidence})`)
+            } else if (createData.upgradeRequired) {
+              console.log(`⚠️ Bill limit reached - skipping "${parsed.name}" (Free tier: ${createData.limit} bills)`)
+              // Don't create synced_email entry to allow retry after upgrade
+              continue
+            } else {
+              console.error(`❌ Failed to create bill for "${parsed.name}":`, createData.error)
+            }
+          } catch (error: any) {
+            console.error(`❌ Failed to create bill for "${parsed.name}":`, error.message)
           }
         }
 

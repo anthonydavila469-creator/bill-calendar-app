@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -12,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { startOfMonth, endOfMonth } from 'date-fns'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: HomeIcon },
@@ -25,6 +27,60 @@ export default function Navigation({ userEmail }: { userEmail: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  const [overdueCount, setOverdueCount] = useState(0)
+  const [mounted, setMounted] = useState(false)
+  const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'pro'>('free')
+
+  // Hydration-safe: only render Radix components after mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Fetch subscription tier
+  useEffect(() => {
+    async function fetchSubscriptionTier() {
+      const { data: prefs } = await supabase
+        .from('user_preferences')
+        .select('subscription_tier')
+        .single()
+
+      if (prefs?.subscription_tier) {
+        setSubscriptionTier(prefs.subscription_tier)
+      }
+    }
+    fetchSubscriptionTier()
+  }, [])
+
+  // Fetch overdue bills count
+  useEffect(() => {
+    async function fetchOverdueCount() {
+      const today = new Date().getDate()
+      const monthStart = startOfMonth(new Date())
+      const monthEnd = endOfMonth(new Date())
+
+      // Get all active bills and this month's payments
+      const [billsResult, paymentsResult] = await Promise.all([
+        supabase.from('bills').select('*').eq('is_active', true),
+        supabase.from('payments').select('bill_id')
+          .gte('paid_at', monthStart.toISOString())
+          .lte('paid_at', monthEnd.toISOString())
+      ])
+
+      if (billsResult.data && paymentsResult.data) {
+        const paidBillIds = new Set(paymentsResult.data.map(p => p.bill_id))
+        const overdue = billsResult.data.filter(bill =>
+          bill.due_day < today && !paidBillIds.has(bill.id)
+        )
+        setOverdueCount(overdue.length)
+      }
+    }
+
+    fetchOverdueCount()
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchOverdueCount, 30000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -49,7 +105,7 @@ export default function Navigation({ userEmail }: { userEmail: string }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
             </div>
-            <span className="text-xl font-bold tracking-tight">BillFlow</span>
+            <span className="text-xl font-bold tracking-tight">PayPulse</span>
           </div>
 
           {/* Navigation Items */}
@@ -75,7 +131,15 @@ export default function Navigation({ userEmail }: { userEmail: string }) {
                       <item.icon className="w-5 h-5" />
                     </div>
                     <span className="font-medium">{item.label}</span>
-                    {isActive && (
+                    {item.href === '/dashboard' && overdueCount > 0 && (
+                      <span className="ml-auto px-2 py-0.5 text-xs font-bold rounded-full bg-rose-500 text-white animate-pulse">
+                        {overdueCount}
+                      </span>
+                    )}
+                    {isActive && item.href !== '/dashboard' && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-400" />
+                    )}
+                    {isActive && item.href === '/dashboard' && overdueCount === 0 && (
                       <div className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-400" />
                     )}
                   </Link>
@@ -86,39 +150,58 @@ export default function Navigation({ userEmail }: { userEmail: string }) {
 
           {/* User Profile */}
           <div className="p-4 border-t border-white/5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="w-full justify-start gap-3 px-4 py-6 text-zinc-400 hover:text-white hover:bg-white/5 rounded-xl transition-all">
-                  <Avatar className="h-9 w-9 ring-2 ring-white/10">
-                    <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-sm font-medium">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col items-start">
-                    <span className="text-sm font-medium text-white truncate max-w-[140px]">{userEmail}</span>
-                    <span className="text-xs text-zinc-500">Free Plan</span>
-                  </div>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 bg-[#12121a] border-white/10">
-                <DropdownMenuItem asChild className="text-zinc-400 focus:text-white focus:bg-white/5">
-                  <Link href="/settings">
+            {mounted ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-start gap-3 px-4 py-6 text-zinc-400 hover:text-white hover:bg-white/5 rounded-xl transition-all">
+                    <Avatar className="h-9 w-9 ring-2 ring-white/10">
+                      <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-sm font-medium">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col items-start">
+                      <span className="text-sm font-medium text-white truncate max-w-[140px]">{userEmail}</span>
+                      <span className="text-xs text-zinc-500">
+                        {subscriptionTier === 'pro' ? 'Pro Plan' : 'Free Plan'}
+                      </span>
+                    </div>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56 bg-[#12121a] border-white/10">
+                  <DropdownMenuItem asChild className="text-zinc-400 focus:text-white focus:bg-white/5">
+                    <Link href="/settings">
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Settings
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-white/5" />
+                  <DropdownMenuItem onClick={handleSignOut} className="text-rose-400 focus:text-rose-300 focus:bg-rose-500/10">
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-white/5" />
-                <DropdownMenuItem onClick={handleSignOut} className="text-rose-400 focus:text-rose-300 focus:bg-rose-500/10">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                  </svg>
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              /* SSR placeholder: same dimensions, no Radix */
+              <div className="w-full flex items-center justify-start gap-3 px-4 py-6 text-zinc-400 rounded-xl">
+                <Avatar className="h-9 w-9 ring-2 ring-white/10">
+                  <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-sm font-medium">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col items-start">
+                  <span className="text-sm font-medium text-white truncate max-w-[140px]">{userEmail}</span>
+                  <span className="text-xs text-zinc-500">
+                    {subscriptionTier === 'pro' ? 'Pro Plan' : 'Free Plan'}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -131,27 +214,38 @@ export default function Navigation({ userEmail }: { userEmail: string }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
           </div>
-          <span className="text-lg font-bold">BillFlow</span>
+          <span className="text-lg font-bold">PayPulse</span>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white">
-              <Avatar className="h-8 w-8 ring-2 ring-white/10">
-                <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-xs font-medium">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="bg-[#12121a] border-white/10">
-            <DropdownMenuItem onClick={handleSignOut} className="text-rose-400 focus:text-rose-300 focus:bg-rose-500/10">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {mounted ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white">
+                <Avatar className="h-8 w-8 ring-2 ring-white/10">
+                  <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-xs font-medium">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-[#12121a] border-white/10">
+              <DropdownMenuItem onClick={handleSignOut} className="text-rose-400 focus:text-rose-300 focus:bg-rose-500/10">
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          /* SSR placeholder: same dimensions, no Radix */
+          <div className="inline-flex items-center justify-center h-10 w-10 text-zinc-400">
+            <Avatar className="h-8 w-8 ring-2 ring-white/10">
+              <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-xs font-medium">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+        )}
       </div>
 
       {/* Mobile bottom navigation */}
@@ -169,10 +263,15 @@ export default function Navigation({ userEmail }: { userEmail: string }) {
                     : 'text-zinc-500'
                 }`}
               >
-                <div className={`p-2 rounded-xl transition-all ${
+                <div className={`relative p-2 rounded-xl transition-all ${
                   isActive ? 'bg-teal-500/20' : ''
                 }`}>
                   <item.icon className="w-5 h-5" />
+                  {item.href === '/dashboard' && overdueCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 text-[10px] font-bold rounded-full bg-rose-500 text-white flex items-center justify-center animate-pulse">
+                      {overdueCount}
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs font-medium">{item.label}</span>
               </Link>
