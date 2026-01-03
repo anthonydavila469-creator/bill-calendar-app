@@ -58,19 +58,36 @@ export async function POST(request: Request) {
     const returnUrl = `${origin}/settings`
     console.log('Creating portal session with return URL:', returnUrl)
 
+    // Log customer ID for debugging
+    console.log('Creating portal session for customer:', prefs.stripe_customer_id)
+
     // Create billing portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: prefs.stripe_customer_id,
       return_url: returnUrl,
     })
 
+    console.log('Portal session created successfully:', session.id)
     return NextResponse.json({ url: session.url })
   } catch (error: any) {
-    console.error('Portal session creation error:', error)
+    // Enhanced error logging
+    console.error('Portal session creation error (full):', {
+      message: error?.message,
+      type: error?.type,
+      code: error?.code,
+      statusCode: error?.statusCode,
+      raw: error?.raw,
+      customerId: prefs?.stripe_customer_id,
+      stack: error?.stack,
+    })
+
     return NextResponse.json(
       {
         error: 'Failed to create portal session',
         details: error?.message || 'Unknown error',
+        errorType: error?.type,
+        errorCode: error?.code,
+        customerId: prefs?.stripe_customer_id, // Include for debugging
       },
       { status: 500 }
     )
