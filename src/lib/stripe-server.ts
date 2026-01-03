@@ -29,9 +29,9 @@ if (!process.env.STRIPE_SECRET_KEY && process.env.NODE_ENV !== 'production') {
  * Uses the secret key for server-side operations
  */
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
-  // Using explicit stable API version to avoid beta/preview issues
-  // 2024-11-20 is a recent, stable, production-ready version
-  apiVersion: '2024-11-20' as any,
+  // Using the correct API version for SDK v20.1.0
+  // 2025-12-15.clover is the valid version - .clover is Stripe's codename
+  apiVersion: '2025-12-15.clover' as any,
 
   // Enable TypeScript support for better type safety
   typescript: true,
