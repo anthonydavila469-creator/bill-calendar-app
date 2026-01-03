@@ -16,6 +16,8 @@ import { createClient } from '@/lib/supabase-server'
 import { stripe } from '@/lib/stripe-server'
 
 export async function POST(request: Request) {
+  let customerId: string | null = null
+
   try {
     // Authenticate user
     const supabase = await createClient()
@@ -52,6 +54,9 @@ export async function POST(request: Request) {
       )
     }
 
+    // Store for error logging
+    customerId = prefs.stripe_customer_id
+
     // Get the origin from the request headers (works in both dev and production)
     const origin = request.headers.get('origin') || request.headers.get('referer')?.split('/').slice(0, 3).join('/') || process.env.NEXT_PUBLIC_APP_URL || 'https://bill-calendar-app.vercel.app'
 
@@ -59,11 +64,11 @@ export async function POST(request: Request) {
     console.log('Creating portal session with return URL:', returnUrl)
 
     // Log customer ID for debugging
-    console.log('Creating portal session for customer:', prefs.stripe_customer_id)
+    console.log('Creating portal session for customer:', customerId)
 
     // Create billing portal session
     const session = await stripe.billingPortal.sessions.create({
-      customer: prefs.stripe_customer_id,
+      customer: customerId,
       return_url: returnUrl,
     })
 
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
       code: error?.code,
       statusCode: error?.statusCode,
       raw: error?.raw,
-      customerId: prefs?.stripe_customer_id,
+      customerId: customerId,
       stack: error?.stack,
     })
 
@@ -87,7 +92,7 @@ export async function POST(request: Request) {
         details: error?.message || 'Unknown error',
         errorType: error?.type,
         errorCode: error?.code,
-        customerId: prefs?.stripe_customer_id, // Include for debugging
+        customerId: customerId, // Include for debugging
       },
       { status: 500 }
     )
