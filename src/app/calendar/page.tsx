@@ -414,20 +414,25 @@ export default function CalendarPage() {
       </div>
 
       {/* Calendar */}
-      <div className={cn(glass.card, 'rounded-2xl p-6')}>
+      <div className={cn(glass.card, 'rounded-2xl p-3 md:p-6')}>
         {/* Custom Calendar Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+        <div className="flex items-center justify-between mb-4 md:mb-6 flex-col md:flex-row gap-3 md:gap-4">
+          {/* Month Title - Centered on mobile, left on desktop */}
+          <h2 className="text-xl md:text-xl font-bold text-white tracking-tight order-1 md:order-2">
+            {format(displayedMonth, 'MMMM yyyy')}
+          </h2>
+
           {/* Navigation Controls */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 order-2 md:order-1">
             <Button
               onClick={handlePrevMonth}
               disabled={isNavigating}
               variant="outline"
               size="icon"
-              className="w-10 h-10"
+              className="w-9 h-9 md:w-10 md:h-10"
               aria-label="Previous month"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4 md:w-5 md:h-5" />
             </Button>
 
             <Button
@@ -435,30 +440,25 @@ export default function CalendarPage() {
               disabled={isNavigating}
               variant="outline"
               size="icon"
-              className="w-10 h-10"
+              className="w-9 h-9 md:w-10 md:h-10"
               aria-label="Next month"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="w-4 h-4 md:w-5 md:h-5" />
             </Button>
 
             <Button
               onClick={handleToday}
               disabled={isNavigating || isCurrentMonth}
               variant="outline"
-              className="h-10"
+              className="h-9 md:h-10 text-sm md:text-base"
             >
-              <CalendarDays className="w-4 h-4 mr-2" />
+              <CalendarDays className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2" />
               Today
             </Button>
           </div>
 
-          {/* Month Title */}
-          <h2 className="text-xl font-semibold text-white tracking-tight">
-            {format(displayedMonth, 'MMMM yyyy')}
-          </h2>
-
-          {/* Spacer for balance */}
-          <div className="w-[168px] hidden lg:block" />
+          {/* Spacer for balance on desktop */}
+          <div className="w-[168px] hidden lg:block order-3" />
         </div>
 
         <FullCalendar
