@@ -31,7 +31,7 @@ if (!process.env.STRIPE_SECRET_KEY && process.env.NODE_ENV !== 'production') {
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   // Use the latest API version
   // Update this version as needed when Stripe releases new versions
-  apiVersion: '2024-12-18',
+  apiVersion: '2024-12-18' as any,
 
   // Enable TypeScript support for better type safety
   typescript: true,
