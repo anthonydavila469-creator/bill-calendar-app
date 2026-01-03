@@ -32,7 +32,8 @@ export async function proxy(request: NextRequest) {
 
   // Protect dashboard routes - redirect to login if not authenticated
   const isAuthRoute = request.nextUrl.pathname.startsWith('/auth')
-  const isProtectedRoute = !isAuthRoute && request.nextUrl.pathname !== '/'
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api')
+  const isProtectedRoute = !isAuthRoute && !isApiRoute && request.nextUrl.pathname !== '/'
 
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone()
