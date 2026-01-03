@@ -213,7 +213,7 @@ export default function DashboardPage() {
   // Empty state when no bills exist
   if (bills.length === 0) {
     return (
-      <div className={spacing.sectionGap}>
+      <div className={`${spacing.sectionGap} pb-20 md:pb-0`}>
         <PageHeader
           title="Dashboard"
           subtitle={format(new Date(), 'EEEE, MMMM d, yyyy')}
@@ -287,7 +287,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className={spacing.sectionGap}>
+    <div className={`${spacing.sectionGap} pb-20 md:pb-0`}>
       {/* Header */}
       <PageHeader
         title="Dashboard"
@@ -744,7 +744,7 @@ function BillItem({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="h-8 w-8 p-0 hover:bg-white/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
               aria-label="Bill actions"
             >
               <MoreVertical className="w-4 h-4" />

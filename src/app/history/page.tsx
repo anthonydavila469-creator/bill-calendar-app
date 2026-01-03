@@ -183,7 +183,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className={spacing.sectionGap}>
+    <div className={`${spacing.sectionGap} pb-20 md:pb-0`}>
       {/* Page Header */}
       <PageHeader
         title="Payment History"

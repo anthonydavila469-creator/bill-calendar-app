@@ -542,7 +542,7 @@ export default function BillsPage() {
   const activeCategories = Object.keys(categoryCounts)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20 md:pb-0">
       {/* Control Bar */}
       {bills.length > 0 ? (
         <BillsControlBar

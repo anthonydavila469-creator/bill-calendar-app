@@ -358,7 +358,7 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className={spacing.sectionGap}>
+    <div className={`${spacing.sectionGap} pb-20 md:pb-0`}>
       {/* Header */}
       <PageHeader
         title="Calendar"
