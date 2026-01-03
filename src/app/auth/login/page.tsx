@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
@@ -15,6 +15,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+
+  // Check for OAuth errors from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const errorParam = params.get('error')
+    const messageParam = params.get('message')
+
+    if (errorParam === 'oauth_failed' && messageParam) {
+      setError(`Google sign-in failed: ${messageParam}`)
+    } else if (errorParam) {
+      setError(`Authentication error: ${errorParam}`)
+    }
+  }, [])
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,16 +50,28 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     setLoading(true)
+    setError(null)
+
+    console.log('🔐 Initiating Google OAuth...')
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
       },
     })
 
     if (error) {
-      setError(error.message)
+      console.error('❌ OAuth failed:', error)
+      setError(`Failed to start Google sign-in: ${error.message}`)
       setLoading(false)
+    } else {
+      console.log('✅ Redirecting to Google...')
+      // User will be redirected, loading state stays true
     }
   }
 
@@ -66,7 +91,7 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
           </div>
-          <span className="text-2xl font-bold">BillFlow</span>
+          <span className="text-2xl font-bold">PayPulse</span>
         </div>
 
         {/* Card */}

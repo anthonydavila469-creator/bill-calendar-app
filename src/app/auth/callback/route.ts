@@ -32,7 +32,16 @@ export async function GET(request: Request) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
+      console.log('✅ OAuth session created successfully')
       return NextResponse.redirect(`${origin}${next}`)
+    } else {
+      console.error('❌ OAuth session exchange failed:', {
+        error: error.message,
+        status: error.status,
+      })
+      return NextResponse.redirect(
+        `${origin}/auth/login?error=oauth_failed&message=${encodeURIComponent(error.message)}`
+      )
     }
   }
 
